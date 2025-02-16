@@ -4,96 +4,76 @@ from flask import Flask, request, jsonify
 
 app = Flask(__name__)
 
-# Load Shopify Credentials from Environment Variables
-SHOPIFY_STORE_URL = os.getenv("SHOPIFY_STORE_URL")  # Example: "your-store.myshopify.com"
-SHOPIFY_ACCESS_TOKEN = os.getenv("SHOPIFY_ACCESS_TOKEN")  # Private App API Key
+# Shopify API Credentials (use environment variables)
+SHOPIFY_STORE_URL = os.getenv("SHOPIFY_STORE_URL")
+SHOPIFY_ACCESS_TOKEN = os.getenv("SHOPIFY_ACCESS_TOKEN")
 
-# Shopify API Endpoints
-SHOPIFY_FILES_API_URL = f"https://{SHOPIFY_STORE_URL}/admin/api/2024-01/files.json"
-SHOPIFY_METAFIELD_API_URL = f"https://{SHOPIFY_STORE_URL}/admin/api/2024-01/orders/{{order_id}}/metafields.json"
-
-def upload_image_to_shopify(image_url):
-    """
-    Uploads an image from DigitalOcean Spaces to Shopify Files API
-    Returns the Shopify-hosted image URL or None if upload fails.
-    """
+def upload_to_shopify_files(image_url):
+    """Uploads the processed image to Shopify Files API and returns the Shopify-hosted URL."""
+    shopify_url = f"{SHOPIFY_STORE_URL}/admin/api/2024-01/files.json"
     headers = {
-        "X-Shopify-Access-Token": SHOPIFY_ACCESS_TOKEN,
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
+        "X-Shopify-Access-Token": SHOPIFY_ACCESS_TOKEN
     }
-
-    payload = {
+    data = {
         "file": {
-            "alt": "Processed Pet Portrait",
-            "url": image_url  # DigitalOcean Processed Image URL
+            "url": image_url
         }
     }
-
-    response = requests.post(SHOPIFY_FILES_API_URL, json=payload, headers=headers)
+    
+    response = requests.post(shopify_url, json=data, headers=headers)
     response_data = response.json()
-
+    
     if "file" in response_data:
-        return response_data["file"]["url"]  # Shopify-hosted URL
+        return response_data["file"]["url"]
     else:
-        return None  # Return None if upload fails
+        print("Shopify File Upload Error:", response_data)
+        return None
 
-def update_shopify_order_metafield(order_id, shopify_image_url):
-    """
-    Updates the order metafield in Shopify with the Shopify-hosted image URL.
-    """
+def update_order_metafield(order_id, shopify_file_url):
+    """Updates the Shopify order metafield with the Shopify-hosted file URL."""
+    shopify_url = f"{SHOPIFY_STORE_URL}/admin/api/2024-01/metafields.json"
     headers = {
-        "X-Shopify-Access-Token": SHOPIFY_ACCESS_TOKEN,
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
+        "X-Shopify-Access-Token": SHOPIFY_ACCESS_TOKEN
     }
-
-    metafield_data = {
+    data = {
         "metafield": {
             "namespace": "custom",
             "key": "processed_image",
-            "value": shopify_image_url,
-            "type": "single_line_text_field"
+            "value": shopify_file_url,
+            "type": "url",
+            "owner_id": order_id,
+            "owner_resource": "order"
         }
     }
-
-    response = requests.post(SHOPIFY_METAFIELD_API_URL.format(order_id=order_id), json=metafield_data, headers=headers)
+    
+    response = requests.post(shopify_url, json=data, headers=headers)
     return response.json()
 
 @app.route('/process', methods=['POST'])
 def process_image():
-    """
-    Handles the image processing request.
-    Receives an image URL & order ID, processes the image, 
-    uploads it to Shopify, and updates the order metafield.
-    """
-    data = request.get_json()
+    data = request.json
     image_url = data.get("image_url")
     order_id = data.get("order_id")
 
     if not image_url or not order_id:
         return jsonify({"error": "Missing image_url or order_id"}), 400
 
-    try:
-        # Step 1: Process the image (assuming processing is done externally)
-        processed_image_url = image_url.replace("uploads", "processed")  # Simulating processing
+    # Step 1: Upload processed image to Shopify
+    shopify_file_url = upload_to_shopify_files(image_url)
+    
+    if not shopify_file_url:
+        return jsonify({"error": "Failed to upload image to Shopify"}), 500
 
-        # Step 2: Upload the processed image to Shopify Files
-        shopify_image_url = upload_image_to_shopify(processed_image_url)
+    # Step 2: Update metafield with Shopify-hosted image URL
+    metafield_response = update_order_metafield(order_id, shopify_file_url)
 
-        if not shopify_image_url:
-            return jsonify({"error": "Failed to upload image to Shopify"}), 500
+    return jsonify({
+        "original_image": image_url,
+        "processed_image_url": shopify_file_url,
+        "shopify_response": metafield_response
+    })
 
-        # Step 3: Update Shopify order metafield
-        metafield_response = update_shopify_order_metafield(order_id, shopify_image_url)
-
-        return jsonify({
-            "original_image": image_url,
-            "processed_image_url": processed_image_url,
-            "shopify_image_url": shopify_image_url,
-            "shopify_response": metafield_response
-        })
-
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=10000)
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=10000)
