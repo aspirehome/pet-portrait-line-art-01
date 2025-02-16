@@ -4,10 +4,10 @@ from flask import Flask, request, jsonify
 
 app = Flask(__name__)
 
-# Shopify API Credentials (Replace with actual values)
-SHOPIFY_STORE_URL = "https://yourstore.myshopify.com"  # Replace with your actual store URL
-SHOPIFY_ADMIN_API_KEY = "shpat_xxxxxxxxxxxxxxxxxxxxx"  # Replace with your actual API key
-SHOPIFY_API_VERSION = "2023-10"  # Ensure this matches Shopify's latest API version
+# Load credentials from environment variables
+SHOPIFY_STORE_URL = os.getenv("SHOPIFY_STORE_URL")
+SHOPIFY_ADMIN_API_KEY = os.getenv("SHOPIFY_ADMIN_API_KEY")
+SHOPIFY_API_VERSION = os.getenv("SHOPIFY_API_VERSION", "2023-10")
 
 # Function to update Shopify order metafield
 def update_shopify_order_metafield(order_id, processed_image_url):
@@ -27,6 +27,7 @@ def update_shopify_order_metafield(order_id, processed_image_url):
     }
 
     response = requests.post(shopify_url, json=metafield_payload, headers=headers)
+    print("Shopify Metafield Update Response:", response.json())  # Debug log
     return response.json()
 
 @app.route('/process', methods=['POST'])
@@ -39,8 +40,8 @@ def process_image():
         if not image_url or not order_id:
             return jsonify({"error": "Missing image_url or order_id"}), 400
 
-        # Simulate image processing (Replace this with actual processing logic)
-        processed_image_url = image_url.replace("uploads", "processed")  # Dummy example
+        # Simulated image processing (Replace with actual logic)
+        processed_image_url = image_url.replace("uploads", "processed")  # Dummy processing logic
 
         # Save processed image URL to Shopify Order Metafield
         shopify_response = update_shopify_order_metafield(order_id, processed_image_url)
@@ -53,6 +54,7 @@ def process_image():
         })
     
     except Exception as e:
+        print("Error:", str(e))  # Debug log
         return jsonify({"error": str(e)}), 500
 
 if __name__ == '__main__':
